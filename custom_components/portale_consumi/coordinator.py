@@ -8,14 +8,21 @@ from typing import Any
 
 import aiohttp
 
+from homeassistant.core import callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
 from homeassistant.util import dt as dt_util
 
-from .api import PortaleConsumiApi, PortaleConsumiAuthError, PortaleConsumiError
+from .api import (
+    PortaleConsumiApi,
+    PortaleConsumiAuthError,
+    PortaleConsumiError,
+    PortaleConsumiSessionSuspect,
+)
 from .const import (
     CONF_COOKIE_HEADER,
     CONF_SCAN_INTERVAL_HOURS,
@@ -26,7 +33,9 @@ from .const import (
     KEY_FORNITURE_ELETTRICHE,
     KEY_FORNITURE_GAS,
     KEY_LAST_UPDATE,
+    KEEPALIVE_MINUTES,
 )
+from .statistics import async_import_series
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -193,6 +202,31 @@ def _calendar_for_year(
     }
 
 
+def _monthly_series(payload: Any, commodity: str) -> dict[str, float]:
+    """Serie mensile ``YYYYMM`` → consumo di un singolo POD/PDR.
+
+    Unisce contratti e gestori dello stesso punto: per ogni competenza tiene
+    la lettura più recente, a parità di data preferisce una rettifica.
+    """
+    selected: dict[str, tuple[tuple[str, int], float]] = {}
+    for record in _iter_monthly_records(payload):
+        competence = str(record.get("competenza_consumi", ""))
+        if len(competence) != 6 or not competence.isdigit():
+            continue
+        if not 1 <= int(competence[4:]) <= 12:
+            continue
+        value = _record_consumption(record, commodity)
+        if value is None:
+            continue
+        reading_date = str(record.get("data_lettura") or "")
+        is_correction = int("rettifica" in str(record.get("tipo_misura", "")).lower())
+        rank = (reading_date, is_correction)
+        previous = selected.get(competence)
+        if previous is None or rank > previous[0]:
+            selected[competence] = (rank, value)
+    return {key: round(value, 3) for key, (_, value) in sorted(selected.items())}
+
+
 class PortaleConsumiCoordinator(DataUpdateCoordinator):
     """Recupera i punti attivi e le misure annuali, incluse quelle di gestori cessati."""
 
@@ -207,6 +241,7 @@ class PortaleConsumiCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=timedelta(hours=interval_hours),
         )
+        self.interval_hours = interval_hours
         self.entry = entry
         self.api = PortaleConsumiApi(
             session,
@@ -238,6 +273,16 @@ class PortaleConsumiCoordinator(DataUpdateCoordinator):
             for code in gas_codes:
                 gas_usage[code] = await self.api.get_consumi_gas(code)
 
+            # Statistiche mensili per la dashboard Energia, una per POD/PDR.
+            for code, payload in electric_usage.items():
+                await async_import_series(
+                    self.hass, True, code, _monthly_series(payload, "electric")
+                )
+            for code, payload in gas_usage.items():
+                await async_import_series(
+                    self.hass, False, code, _monthly_series(payload, "gas")
+                )
+
             return {
                 KEY_FORNITURE_ELETTRICHE: electric_supplies,
                 KEY_FORNITURE_GAS: gas_supplies,
@@ -259,5 +304,50 @@ class PortaleConsumiCoordinator(DataUpdateCoordinator):
             raise ConfigEntryAuthFailed(
                 "Sessione del Portale Consumi scaduta o non valida."
             ) from err
+        except PortaleConsumiSessionSuspect as err:
+            # Il portale risponde così alle sessioni scadute; se la home
+            # pubblica è raggiungibile il problema è la sessione.
+            if await self.api.portal_is_up():
+                raise ConfigEntryAuthFailed(
+                    "Sessione del Portale Consumi scaduta: serve un nuovo accesso."
+                ) from err
+            raise UpdateFailed(str(err)) from err
         except (PortaleConsumiError, aiohttp.ClientError) as err:
             raise UpdateFailed(str(err)) from err
+        finally:
+            self._persist_renewed_cookie()
+
+    @callback
+    def async_start_keepalive(self) -> None:
+        """Una richiesta leggera ogni 10 minuti tiene viva la sessione del
+        portale fra un aggiornamento e l'altro."""
+        self.entry.async_on_unload(
+            async_track_time_interval(
+                self.hass, self._async_keepalive, timedelta(minutes=KEEPALIVE_MINUTES)
+            )
+        )
+
+    async def _async_keepalive(self, _now: datetime) -> None:
+        try:
+            await self.api.get_forniture_elettriche()
+        except (PortaleConsumiAuthError, PortaleConsumiSessionSuspect):
+            if isinstance(self.last_exception, ConfigEntryAuthFailed):
+                return  # reautenticazione già avviata dal coordinator
+            if await self.api.portal_is_up():
+                _LOGGER.info(
+                    "Sessione del Portale Consumi scaduta: avvio la riautenticazione"
+                )
+                self.entry.async_start_reauth(self.hass)
+        except PortaleConsumiError as err:
+            _LOGGER.debug("Mantenimento sessione non riuscito: %s", err)
+        finally:
+            self._persist_renewed_cookie()
+
+    def _persist_renewed_cookie(self) -> None:
+        """Salva l'header se il portale ha rinnovato la sessione (senza ricaricare)."""
+        header = self.api.cookie_header
+        if header != self.entry.data.get(CONF_COOKIE_HEADER):
+            self.hass.config_entries.async_update_entry(
+                self.entry,
+                data={**self.entry.data, CONF_COOKIE_HEADER: header},
+            )

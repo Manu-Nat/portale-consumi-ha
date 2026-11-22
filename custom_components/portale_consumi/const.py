@@ -22,6 +22,9 @@ DEFAULT_SCAN_INTERVAL_HOURS = 168  # una settimana
 MIN_SCAN_INTERVAL_HOURS = 24
 MAX_SCAN_INTERVAL_HOURS = 720
 
+# Richiesta leggera per tenere viva la sessione fra un aggiornamento e l'altro.
+KEEPALIVE_MINUTES = 10
+
 DEFAULT_SCAN_INTERVAL = timedelta(hours=DEFAULT_SCAN_INTERVAL_HOURS)
 
 KEY_FORNITURE_ELETTRICHE = "forniture_elettriche"

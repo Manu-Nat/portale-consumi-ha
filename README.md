@@ -25,6 +25,7 @@ Integrazione personalizzata per **Home Assistant** che legge i consumi di **luce
 - Rileva automaticamente i **POD** (luce) e i **PDR** (gas) con un contratto attivo.
 - Sensori di **consumo per anno solare** (totale) e **per ciascun mese** (gennaio–dicembre), per luce (kWh) e gas (m³).
 - Unisce le misure di contratti e gestori diversi sullo stesso punto, preferendo la lettura più recente (e una rettifica a parità di data).
+- Importa tutta la storia mensile come **statistiche esterne** (`portale_consumi:luce_<pod>`, `portale_consumi:gas_<pdr>`), selezionabili nella **dashboard Energia**.
 - Sensori di servizio: forniture elettriche/gas attive e ultimo aggiornamento.
 - Intervallo di aggiornamento configurabile (da 24 a 720 ore, predefinito una settimana).
 - Gestione della scadenza sessione con **reautenticazione** e **riconfigurazione** dal menu dell'integrazione.
@@ -65,6 +66,10 @@ Consigli:
 
 > ⚠️ **Non inserire mai credenziali SPID o CIE.** L'integrazione usa soltanto il cookie di una sessione già autenticata, che resta salvato nella tua istanza di Home Assistant. Quando la sessione scade, Home Assistant avvia la procedura di reautenticazione e ti chiede un nuovo cookie.
 
+### Rinnovo automatico della sessione
+
+Home Assistant fa una richiesta leggera al portale **ogni 10 minuti** per tenere viva la sessione e salva i cookie che il portale rinnova, così non devi reincollarli. Se la sessione scade comunque (il portale risponde `503 API_INVALID_RESPONSE`) e il sito è raggiungibile, Home Assistant avvia la **riautenticazione** e ti chiede un nuovo cookie. Non vengono salvate credenziali SPID o CIE.
+
 ### Entità
 
 | Entità | Descrizione |
@@ -76,6 +81,15 @@ Consigli:
 | `PortaleConsumi - Forniture elettriche attive` | Numero di POD con contratto attivo |
 | `PortaleConsumi - Forniture gas attive` | Numero di PDR con contratto attivo |
 | `PortaleConsumi - Ultimo aggiornamento` | Data e ora dell'ultimo aggiornamento riuscito |
+
+### Dashboard Energia
+
+Per ogni POD e PDR viene creata una statistica con una riga per mese, posta alla mezzanotte del primo giorno. In **Impostazioni → Dashboard → Energia** scegli `Luce … (SII)` come consumo dalla rete e `Gas … (SII)` come consumo di gas.
+
+- Nelle viste **mese** e **anno** i totali sono corretti; nella vista **giorno** il consumo del mese appare tutto il giorno 1.
+- I dati del portale arrivano con settimane o mesi di ritardo.
+- Il gas è pubblicato in **Smc** e mostrato come m³ (differenza di pochi punti percentuali).
+- Se il portale smette di pubblicare i mesi più vecchi, la somma già registrata non torna indietro.
 
 ### Note
 
@@ -94,6 +108,7 @@ Custom integration for **Home Assistant** that reads your **electricity and gas*
 - Automatically detects the **POD** (electricity) and **PDR** (gas) points with an active contract.
 - **Calendar-year** (total) and **per-month** (January–December) consumption sensors for electricity (kWh) and gas (m³).
 - Merges readings from different contracts/suppliers on the same point, preferring the most recent reading (and a correction when dates are equal).
+- Imports the full monthly history as **external statistics** (`portale_consumi:luce_<pod>`, `portale_consumi:gas_<pdr>`), selectable in the **Energy dashboard**.
 - Service sensors: active electricity/gas supplies and last update.
 - Configurable update interval (24 to 720 hours, default one week).
 - Session expiry handled through **reauthentication** and **reconfiguration** from the integration menu.
@@ -134,6 +149,10 @@ Tips:
 
 > ⚠️ **Never enter SPID or CIE credentials.** The integration only uses the cookie of an already authenticated session, which is stored inside your Home Assistant instance. When the session expires, Home Assistant starts the reauthentication flow and asks for a new cookie.
 
+### Automatic session renewal
+
+Home Assistant sends a lightweight request to the portal **every 10 minutes** to keep the session alive and saves the cookies the portal renews, so you don't have to paste them again. If the session expires anyway (the portal answers `503 API_INVALID_RESPONSE`) and the site is reachable, Home Assistant starts **reauthentication** and asks for a new cookie. No SPID or CIE credentials are stored.
+
 ### Entities
 
 | Entity | Description |
@@ -146,6 +165,15 @@ Tips:
 | `PortaleConsumi - Forniture gas attive` | Number of PDRs with an active contract |
 | `PortaleConsumi - Ultimo aggiornamento` | Date and time of the last successful update |
 
+### Energy dashboard
+
+For each POD and PDR a statistic is created with one row per month, placed at midnight on the first day. In **Settings → Dashboards → Energy** pick `Luce … (SII)` as grid consumption and `Gas … (SII)` as gas consumption.
+
+- In the **month** and **year** views totals are correct; in the **day** view the whole month's consumption appears on day 1.
+- Portal data arrives with a delay of weeks or months.
+- Gas is published in **Smc** and shown as m³ (a difference of a few percent).
+- If the portal stops publishing older months, the sum already recorded does not go backwards.
+
 ### Notes
 
 - Data is whatever the portal publishes and can lag by weeks/months: months without a reading are reported as unavailable (`mesi_mancanti`).
@@ -155,3 +183,7 @@ Tips:
 ---
 
 <p align="center">Licenza / License: <a href="LICENSE">MIT</a></p>
+
+<p align="center">
+  Rinnovo sessione e statistiche / Session renewal and statistics: <a href="https://github.com/EnrCol/ha-consumi-sii">EnrCol/ha-consumi-sii</a> (MIT)
+</p>

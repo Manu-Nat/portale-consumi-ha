@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .api import async_build_ssl_context
-from .const import DOMAIN
+from .const import CONF_SCAN_INTERVAL_HOURS, DEFAULT_SCAN_INTERVAL_HOURS, DOMAIN
 from .coordinator import PortaleConsumiCoordinator
 
 PLATFORMS = ["sensor"]
@@ -39,7 +39,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
     hass.data[DOMAIN][f"{entry.entry_id}_session"] = session
-    # Ricarica l'integrazione quando cambiano opzioni o dati (intervallo, cookie).
+    coordinator.async_start_keepalive()
+    # Ricarica solo se cambia l'intervallo: il cookie rinnovato viene salvato
+    # dal coordinator e non deve riavviare l'integrazione.
     entry.async_on_unload(entry.add_update_listener(_async_reload))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -56,4 +58,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    await hass.config_entries.async_reload(entry.entry_id)
+    coordinator = hass.data[DOMAIN].get(entry.entry_id)
+    interval = entry.options.get(CONF_SCAN_INTERVAL_HOURS, DEFAULT_SCAN_INTERVAL_HOURS)
+    if coordinator is None or interval != coordinator.interval_hours:
+        await hass.config_entries.async_reload(entry.entry_id)

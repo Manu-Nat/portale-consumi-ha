@@ -15,6 +15,7 @@ from .api import (
     async_build_ssl_context,
     PortaleConsumiAuthError,
     PortaleConsumiError,
+    PortaleConsumiSessionSuspect,
 )
 from .const import (
     CONF_COOKIE_HEADER,
@@ -67,7 +68,7 @@ async def _validate_input(
         api = PortaleConsumiApi(session, user_input[CONF_COOKIE_HEADER])
         try:
             await api.get_forniture_elettriche()
-        except PortaleConsumiAuthError as err:
+        except (PortaleConsumiAuthError, PortaleConsumiSessionSuspect) as err:
             _LOGGER.error("Validazione Portale Consumi fallita: %s", err)
             return "invalid_session"
         except PortaleConsumiError as err:

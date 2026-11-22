@@ -3,6 +3,7 @@
   "name": "Portale Consumi SII",
   "codeowners": ["@Manu-Nat"],
   "config_flow": true,
+  "dependencies": ["recorder"],
   "documentation": "https://github.com/Manu-Nat/portale-consumi-ha",
   "integration_type": "service",
   "iot_class": "cloud_polling",
